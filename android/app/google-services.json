@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "219524855610",
+    "project_id": "running-f9d57",
+    "storage_bucket": "running-f9d57.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:219524855610:android:10812e7cd69a1b79afc203",
+        "android_client_info": {
+          "package_name": "in.crewcam.hrms"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDCmt2NcHSmqOkHNNq5iZvKbsrly1FRAM4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
