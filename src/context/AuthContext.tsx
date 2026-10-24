@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { subscribeInvalidToken } from '../services/phpApi';
 
 type UserData = {
   token: string | null;
@@ -133,7 +134,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoading(false);
     }, 5000);
 
-    return () => clearTimeout(safetyTimeout);
+    // Auto-logout when any API reports invalid/expired token
+    const unsubscribe = subscribeInvalidToken(() => {
+      console.log('Invalid token detected — logging out automatically');
+      AsyncStorage.multiRemove([
+        'auth_token',
+        'user_mobile',
+        'user_firstname',
+        'user_lastname',
+        'user_role',
+        'user_id',
+        'user_emp_code',
+      ]).then(() => {
+        setUserData({
+          token: null,
+          mobile: null,
+          firstname: null,
+          lastname: null,
+          role: null,
+        });
+        setIsLoggedIn(false);
+      });
+    });
+
+    return () => {
+      clearTimeout(safetyTimeout);
+      unsubscribe();
+    };
   }, []);
 
   return (

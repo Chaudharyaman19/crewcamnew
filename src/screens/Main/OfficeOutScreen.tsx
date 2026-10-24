@@ -28,6 +28,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import LocationMap from '../../components/LocationMap';
 import { useLanguage } from '../../context/LanguageContext';
 import { isPhpSuccess, requestPhpOfficeOut } from '../../services/phpApi';
+import { authFetch } from '../../utils/authFetch';
 // OfficeOutScreen.js
 // Single-file React Native screen that matches the provided screenshot.
 // Requirements: react-native-maps (or expo install react-native-maps), and vector icons if desired.
@@ -36,6 +37,10 @@ const ACCENT = '#55e6ee';
 const SCREEN_BG = '#001a2f';
 const OFFICE_OUT_STATE_CACHE_KEY = 'crewcam_office_out_state_today';
 const OFFICE_OUT_STATE_CACHE_VERSION = 2;
+const MAX_ATTENDANCE_DISTANCE = 100;
+const OFFICE_LAT = 28.542346;
+const OFFICE_LNG = 77.253519;
+const OFFICE_ADDRESS = 'Hansraj Sethi Marg, Govindpuri, Delhi, Delhi, India';
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 64;
 const officialDurations = [30, 60, 90, 120, 150, 180, 210, 240, 270, 300];
@@ -60,8 +65,8 @@ export default function OfficeOutScreen({ navigation }: any) {
   const [, setAddressLoading] = useState(true);
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [address, setAddress] = useState<string>('Fetching address...');
-  const [, setIsInside] = useState(false);
-  const [, setJobLocations] = useState<any[]>([]);
+  const [isInside, setIsInside] = useState(false);
+  const [jobLocations, setJobLocations] = useState<any[]>([]);
   const [, setIsSimulated] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
@@ -122,10 +127,8 @@ export default function OfficeOutScreen({ navigation }: any) {
   const checkIfNamoGangeTrust = (latitude: number, longitude: number) => {
     const targetLat = 28.675;
     const targetLon = 77.382;
-    const latDiff = Math.abs(latitude - targetLat);
-    const lonDiff = Math.abs(longitude - targetLon);
     const distance = getDistanceMeters(latitude, longitude, targetLat, targetLon);
-    if (distance <= 500 || (latDiff < 0.01 && lonDiff < 0.01)) {
+    if (distance <= MAX_ATTENDANCE_DISTANCE) {
       return true;
     }
     return false;
@@ -164,68 +167,111 @@ export default function OfficeOutScreen({ navigation }: any) {
         }
 
         setLocation({ latitude, longitude });
-        const isNamoGange = checkIfNamoGangeTrust(latitude, longitude);
 
-        if (isNamoGange) {
-          setAddress('Namo Gange Trust, 12/52, Sunrise Industrial Area, Site - 2, Mohan Nagar, Ghaziabad, Uttar Pradesh');
-          setIsInside(true);
-          setAddressLoading(false);
-          return;
-        }
-
+        // API failure must NOT skip the offline/office fallback checks below.
+        let locations: any[] = [];
         try {
           const token = await AsyncStorage.getItem('auth_token');
           const userId = await AsyncStorage.getItem('user_id');
           const empCode = await AsyncStorage.getItem('user_emp_code');
-          if (!token) {
-            setAddressLoading(false);
-            return;
+          if (token) {
+            const response = await authFetch(
+              `${API_BASE_URL}/api/attendance/location-premises?token=${encodeURIComponent(token)}&id=${encodeURIComponent(userId || '')}&empCode=${encodeURIComponent(empCode || '')}`,
+            );
+
+            const data: any = await response.json();
+            locations =
+              data.employee_job_locations ||
+              data.job_locations ||
+              data.locations ||
+              (Array.isArray(data.data) ? data.data : []) ||
+              [];
+            setJobLocations(locations);
           }
+        } catch (apiErr) {
+          console.warn('Job locations API error (continuing with fallbacks):', apiErr);
+        }
 
-          const response = await fetch(
-            `${API_BASE_URL}/api/attendance/location-premises?token=${encodeURIComponent(token)}&id=${encodeURIComponent(userId || '')}&empCode=${encodeURIComponent(empCode || '')}`,
-          );
-
-          const data: any = await response.json();
-          const locations: any[] = data.employee_job_locations || [];
-          setJobLocations(locations);
-
+        try {
           let inside = false;
           let currentJobAddress = '';
           let currentPostcode = '';
           let geoData: any = null;
 
+          // 1. Check employee assigned job locations from API
           for (const loc of locations) {
+            const locLat = loc?.lat !== undefined && loc?.lat !== null ? parseFloat(loc.lat) : parseFloat(loc.latitude);
+            const locLng = loc?.longt !== undefined && loc?.longt !== null ? parseFloat(loc.longt) : (loc?.longitude !== undefined ? parseFloat(loc.longitude) : parseFloat(loc.lng));
+            if (isNaN(locLat) || isNaN(locLng)) {
+              continue;
+            }
+
             const dist = getDistanceMeters(
               latitude,
               longitude,
-              parseFloat(loc.lat),
-              parseFloat(loc.longt),
+              locLat,
+              locLng,
             );
 
-            if (dist <= parseFloat(loc.distance)) {
+            const allowedRadius = Math.min(
+              parseFloat(loc.distance) || MAX_ATTENDANCE_DISTANCE,
+              MAX_ATTENDANCE_DISTANCE,
+            );
+
+            if (dist <= allowedRadius) {
               inside = true;
-              currentJobAddress = loc.company_address;
+              currentJobAddress = loc.company_address || loc.address || loc.location;
               break;
             }
           }
 
+          // 2. Namo Gange Trust fallback check (strictly 100m)
           if (!inside) {
-            const geoResp = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=en`,
-              { headers: { 'User-Agent': 'ArogyaMantraApp/1.0' } },
-            );
+            const distanceToNamo = getDistanceMeters(latitude, longitude, 28.675, 77.382);
+            if (distanceToNamo <= MAX_ATTENDANCE_DISTANCE) {
+              inside = true;
+              currentJobAddress = 'Namo Gange Trust, 12/52, Sunrise Industrial Area, Site - 2, Mohan Nagar, Ghaziabad, Uttar Pradesh';
+            }
+          }
 
-            if (geoResp.ok) {
-              geoData = await geoResp.json();
-              currentPostcode = geoData?.address?.postcode || '';
+          // 2b. Govindpuri office fallback (temporary allowed location)
+          if (!inside) {
+            const distanceToOffice = getDistanceMeters(latitude, longitude, OFFICE_LAT, OFFICE_LNG);
+            if (distanceToOffice <= MAX_ATTENDANCE_DISTANCE) {
+              inside = true;
+              currentJobAddress = OFFICE_ADDRESS;
+              console.log(`✅ Inside Govindpuri office by distance (${distanceToOffice}m <= 100m)`);
+            }
+          }
+
+          // 3. Meeting pincode check (strictly 100m)
+          if (!inside) {
+            try {
+              const geoResp = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1&accept-language=en`,
+                { headers: { 'User-Agent': 'ArogyaMantraApp/1.0' } },
+              );
+
+              if (geoResp.ok) {
+                geoData = await geoResp.json();
+                currentPostcode = geoData?.address?.postcode || '';
+              }
+            } catch (geoErr) {
+              console.warn('Reverse geocode failed (continuing):', geoErr);
             }
 
             for (const loc of locations) {
               if (loc.isMeeting && loc.pinCode && currentPostcode && loc.pinCode === currentPostcode) {
-                inside = true;
-                currentJobAddress = loc.company_address;
-                break;
+                const locLat = loc?.lat !== undefined && loc?.lat !== null ? parseFloat(loc.lat) : parseFloat(loc.latitude);
+                const locLng = loc?.longt !== undefined && loc?.longt !== null ? parseFloat(loc.longt) : (loc?.longitude !== undefined ? parseFloat(loc.longitude) : parseFloat(loc.lng));
+                if (!isNaN(locLat) && !isNaN(locLng)) {
+                  const dist = getDistanceMeters(latitude, longitude, locLat, locLng);
+                  if (dist <= MAX_ATTENDANCE_DISTANCE) {
+                    inside = true;
+                    currentJobAddress = loc.company_address || loc.address || loc.location;
+                    break;
+                  }
+                }
               }
             }
           }
@@ -307,6 +353,13 @@ export default function OfficeOutScreen({ navigation }: any) {
   };
 
   const handleOfficeOut = async () => {
+    if (!isInside || !location) {
+      Alert.alert(
+        t('Location Out of Range'),
+        t('You are outside the allowed 100-meter range. Office Out is not allowed.'),
+      );
+      return;
+    }
     if (!reason.trim()) {
       Alert.alert(t('Error'), t('Please enter your reason'));
       return;
@@ -460,6 +513,11 @@ export default function OfficeOutScreen({ navigation }: any) {
             <View style={styles.locationRow}>
               <Text style={styles.dateText}>{formattedDateTime()}</Text>
               <Text style={styles.addressText}>{t('You are at')}: {address}</Text>
+              <Text style={styles.addressText}>
+                {location
+                  ? `Lat: ${location.latitude.toFixed(6)}, Lng: ${location.longitude.toFixed(6)}`
+                  : t('Fetching location...')}
+              </Text>
             </View>
 
             <TouchableOpacity style={styles.submitBtn} onPress={handleOfficeOut} disabled={loading}>

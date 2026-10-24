@@ -18,6 +18,7 @@ import moment from 'moment';
 import CustomHeader from '../../components/CustomHeader';
 import { colors } from '../../theme';
 import { useLanguage } from '../../context/LanguageContext';
+import { authFetch } from '../../utils/authFetch';
 import { fetchPhpAttendanceSummary } from '../../services/phpApi';
 
 type RootStackParamList = {
@@ -179,7 +180,7 @@ const EmployeeHistoryScreen = () => {
       if (!EMP_TOKEN) return;
 
       const url = `https://arogyamantra.com/app-api/user-account-details.php?token=${EMP_TOKEN}`;
-      const res = await fetch(url);
+      const res = await authFetch(url);
       const json = await res.json();
 
       if (json.product && json.product.length > 0) {

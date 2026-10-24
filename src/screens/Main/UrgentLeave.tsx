@@ -15,6 +15,7 @@ import {
 import Geolocation from "react-native-geolocation-service";
 import { API_BASE_URL } from '@env';
 import { formattedDateTime } from "../../utils/dateTime";
+import { authFetch } from "../../utils/authFetch";
 import CustomHeader from "../../components/CustomHeader";
 import { DrawerActions, useNavigation } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
@@ -82,7 +83,7 @@ export default function UrgentLeaveScreen() {
       const userId = await AsyncStorage.getItem("user_id");
       const empCode = await AsyncStorage.getItem("user_emp_code");
 
-      const res = await fetch(`${API_BASE_URL}/app-profile/me?token=${encodeURIComponent(token || "")}&id=${encodeURIComponent(userId || "")}&empCode=${encodeURIComponent(empCode || "")}`);
+      const res = await authFetch(`${API_BASE_URL}/app-profile/me?token=${encodeURIComponent(token || "")}&id=${encodeURIComponent(userId || "")}&empCode=${encodeURIComponent(empCode || "")}`);
       const data = await res.json();
 
       if (!data.error && data.user) {

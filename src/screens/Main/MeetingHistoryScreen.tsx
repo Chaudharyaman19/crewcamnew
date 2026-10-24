@@ -10,6 +10,7 @@ import { API_BASE_URL } from '@env';
 import LinearGradient from "react-native-linear-gradient";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatMeetingDisplayDate } from "../../utils/meetingHelpers";
+import { authFetch } from "../../utils/authFetch";
 
 const { width } = Dimensions.get("window");
 const CARD_WIDTH = width - 20;
@@ -31,7 +32,7 @@ export default function MeetingHistoryScreen({ navigation }: any) {
             const token = await AsyncStorage.getItem('auth_token');
             const userId = await AsyncStorage.getItem('user_id');
             const empCode = await AsyncStorage.getItem('user_emp_code');
-            const response = await fetch(`${API_BASE_URL}/app-api/meeting/history?token=${encodeURIComponent(token || '')}&id=${encodeURIComponent(userId || '')}&empCode=${encodeURIComponent(empCode || '')}`);
+            const response = await authFetch(`${API_BASE_URL}/app-api/meeting/history?token=${encodeURIComponent(token || '')}&id=${encodeURIComponent(userId || '')}&empCode=${encodeURIComponent(empCode || '')}`);
             const data = await response.json();
             if (data.status === 'success') {
                 setMeetings(data.meetings);

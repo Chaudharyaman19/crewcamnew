@@ -1,6 +1,73 @@
 import { PHP_API_BASE_URL as ENV_PHP_API_BASE_URL } from '@env';
+import { Alert, DeviceEventEmitter } from 'react-native';
 
 const trimSlashes = (value: string) => value.replace(/\/+$/, '');
+
+const INVALID_TOKEN_EVENT = 'crewcam:invalid-token';
+let invalidTokenNotified = false;
+let suppressAlertsUntil = 0;
+
+export const isInvalidTokenActive = () => invalidTokenNotified;
+
+export const shouldSuppressAlert = (message?: string) => {
+  if (Date.now() > suppressAlertsUntil) {
+    return false;
+  }
+  const lower = String(message || '').toLowerCase();
+  return (
+    lower.includes('invalid token') ||
+    lower.includes('token expired') ||
+    lower.includes('unauthorized') ||
+    lower.includes('unauthorised')
+  );
+};
+
+export const notifyInvalidToken = () => {
+  if (invalidTokenNotified) {
+    return;
+  }
+  invalidTokenNotified = true;
+  suppressAlertsUntil = Date.now() + 4000;
+  DeviceEventEmitter.emit(INVALID_TOKEN_EVENT);
+};
+
+export const subscribeInvalidToken = (handler: () => void) => {
+  const sub = DeviceEventEmitter.addListener(INVALID_TOKEN_EVENT, handler);
+  return () => sub.remove();
+};
+
+const isInvalidTokenMessage = (message: string) => {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('invalid token') ||
+    lower.includes('token expired') ||
+    lower.includes('token is required') ||
+    lower.includes('unauthorized') ||
+    lower.includes('unauthorised') ||
+    lower.includes('session expired') ||
+    lower.includes('please login') ||
+    lower.includes('please log in') ||
+    lower.includes('token invalid')
+  );
+};
+
+// Suppress "invalid token" Alert popups during the auto-logout window so the
+// user sees a clean redirect to the login screen instead of scary errors.
+(() => {
+  const originalAlert = Alert.alert;
+  (Alert as any).alert = (
+    title: any,
+    message?: any,
+    ...rest: any[]
+  ) => {
+    const text = `${title || ''} ${message || ''}`;
+    if (shouldSuppressAlert(text)) {
+      console.log('[Suppressed invalid-token alert]', text);
+      return;
+    }
+    return originalAlert(title, message, ...rest);
+  };
+})();
 const LEGACY_PHP_API_BASE_URL = 'https://arogyamantra.com/newApi';
 const LEGACY_APP_API_BASE_URL = 'https://arogyamantra.com/app-api';
 const LEGACY_PHP_ORIGIN_URL = 'https://arogyamantra.com';
@@ -430,7 +497,11 @@ const requestPhpApi = async (
         throw new Error('Invalid API response');
       }
       if (!response.ok || isPhpFailure(data)) {
-        throw new Error(data?.message || data?.msg || 'API request failed');
+        const errMsg = String(data?.message || data?.msg || 'API request failed');
+        if (response.status === 401 || isInvalidTokenMessage(errMsg)) {
+          notifyInvalidToken();
+        }
+        throw new Error(errMsg);
       }
 
       if (shouldLogOfficeDebug) {

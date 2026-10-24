@@ -17,6 +17,7 @@ import { API_BASE_URL } from "@env";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import LinearGradient from 'react-native-linear-gradient';
 import { useLanguage } from '../../context/LanguageContext';
+import { authFetch } from '../../utils/authFetch';
 
 const ACCENT = '#55e6ee';
 const SCREEN_BG = '#132746';
@@ -75,7 +76,7 @@ export default function NotificationsScreen({ navigation }: any) {
         return;
       }
 
-      const response = await fetch(
+      const response = await authFetch(
         `${API_BASE_URL}/app-api/activity-logs?token=${encodeURIComponent(token)}&id=${encodeURIComponent(userId || "")}&empCode=${encodeURIComponent(empCode || "")}`
       );
       const data = await response.json();
